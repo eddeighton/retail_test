@@ -12,16 +12,20 @@ include( ${WORKSPACE_ROOT_PATH}/thirdparty/sdl/sdl_include.cmake )
 #get common
 include( ${WORKSPACE_ROOT_PATH}/src/common/common_include.cmake )
 
-add_executable( retail main.cpp )
+set( RETAIL_SOURCE 
+        application.hpp
+        application.cpp
+        window.hpp
+        window.cpp
+        main.cpp )
 
-link_spdlog( retail )
-link_boost( retail atomic )
-link_boost( retail program_options )
-link_boost( retail timer )
-link_boost( retail filesystem )
-link_boost( retail iostreams )
-link_boost( retail serialization )
-link_sdl( retail )
-link_common( retail )
+add_executable( retail_test ${RETAIL_SOURCE} )
 
-install( TARGETS retail DESTINATION bin)
+link_spdlog( retail_test )
+link_boost( retail_test program_options )
+link_boost( retail_test filesystem )
+link_boost( retail_test atomic )
+link_sdl( retail_test )
+link_common( retail_test )
+
+install( TARGETS retail_test DESTINATION bin)
