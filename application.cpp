@@ -1,5 +1,6 @@
 
 #include "application.hpp"
+#include "window.hpp"
 
 #include <SDL2/SDL.h>
 
@@ -9,13 +10,21 @@ namespace retail
 Application::Application()
     :   m_bContinue( true )
 {
-
+    
 }
 
 void Application::run()
 {
+    Window::Config config; //default
+    Window mainWindow( config );
+
     while( m_bContinue )
     {
+
+
+
+
+
         SDL_Event ev;
         while( SDL_PollEvent( &ev ) )
         {
