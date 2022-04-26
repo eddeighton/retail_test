@@ -3,12 +3,17 @@
 
 #include "SDL2/SDL_events.h"
 
+#include "window.hpp"
+
 namespace retail
 {
     class Application
     {
     public:
         Application();
+        ~Application();
+
+        virtual void frame() = 0;
 
         void run();
 
@@ -16,6 +21,8 @@ namespace retail
         void onSDLEvent( const SDL_Event& ev );
 
         bool m_bContinue;
+    protected:
+        Window m_mainWindow;
     };
 
 }

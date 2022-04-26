@@ -2,28 +2,46 @@
 #include "application.hpp"
 #include "window.hpp"
 
+#include "common/assert_verify.hpp"
+
+#include "spdlog/spdlog.h"
+
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_config.h>
 
 namespace retail
 {
 
 Application::Application()
-    :   m_bContinue( true )
+    :   m_bContinue( true ),
+        m_mainWindow( Window::Config{} )
 {
+    const int iInitResult = SDL_Init( SDL_INIT_VIDEO ); // Initialize SDL2
+    if ( iInitResult )
+    {
+        // uh oh!!
+        THROW_RTE( "Failed to initialise SDL. Error: " << SDL_GetError() );
+    }
     
+    SPDLOG_INFO( "SDL Initialisation successful" );
+
+    //SDL_SetHint( SDL_HINT_RENDER_OPENGL_SHADERS, "0" );
+    SDL_SetHint( SDL_HINT_FRAMEBUFFER_ACCELERATION, "vulkan" );
+    SDL_SetHint( SDL_HINT_RENDER_SCALE_QUALITY, "1" );
+
+    atexit( SDL_Quit );
+}
+
+Application::~Application()
+{
+
 }
 
 void Application::run()
 {
-    Window::Config config; //default
-    Window mainWindow( config );
-
     while( m_bContinue )
     {
-
-
-
-
+        frame();
 
         SDL_Event ev;
         while( SDL_PollEvent( &ev ) )

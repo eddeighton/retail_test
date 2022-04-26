@@ -22,6 +22,8 @@ include( ${WORKSPACE_ROOT_PATH}/src/common/common_include.cmake )
 include( ${WORKSPACE_ROOT_PATH}/src/mega/mega_include.cmake )
 
 set( RETAIL_SOURCE 
+        demo.hpp
+        demo.cpp
         application.hpp
         application.cpp
         window.hpp
@@ -29,6 +31,8 @@ set( RETAIL_SOURCE
         main.cpp )
 
 add_executable( retail_test ${RETAIL_SOURCE} )
+
+target_compile_definitions( retail_test PUBLIC VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
 
 link_spdlog( retail_test )
 link_boost( retail_test program_options )
