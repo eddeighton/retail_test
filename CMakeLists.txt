@@ -18,7 +18,7 @@ include( ${WORKSPACE_ROOT_PATH}/thirdparty/sdl/sdl_include.cmake )
 #get common
 include( ${WORKSPACE_ROOT_PATH}/src/common/common_include.cmake )
 
-#get database
+#get mega
 include( ${WORKSPACE_ROOT_PATH}/src/mega/mega_include.cmake )
 
 set( RETAIL_SOURCE 
@@ -45,5 +45,3 @@ link_database( retail_test )
 link_vulkan( retail_test )
 
 install( TARGETS retail_test DESTINATION bin)
-
-MegaRetailProgram( retail_test )
