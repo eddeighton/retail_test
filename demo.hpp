@@ -20,7 +20,7 @@ public:
 
 private:
     vk::DynamicLoader                m_dynamic_loader;
-    vk::Instance                     m_instance;
+    vk::UniqueInstance               m_instance;
     vk::SurfaceKHR                   m_surface;
     vk::PhysicalDevice               m_physical_device;
     vk::Device                       m_logical_device;

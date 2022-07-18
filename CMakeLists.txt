@@ -34,7 +34,11 @@ set( RETAIL_SOURCE
 
 add_executable( retail_test ${RETAIL_SOURCE} )
 
+# add VULKAN_HPP_STORAGE_SHARED and VULKAN_HPP_STORAGE_SHARED_EXPORT 
+# if in shared object see https://github.com/KhronosGroup/Vulkan-Hpp
 target_compile_definitions( retail_test PUBLIC VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
+
+# specify VULKAN_HPP_NO_DEFAULT_DISPATCHER if do NOT want the default dispatcher 
 
 link_spdlog( retail_test )
 link_boost( retail_test program_options )

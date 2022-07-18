@@ -6,6 +6,7 @@
 #include "debug.hpp"
 #include "spdlog/spdlog.h"
 
+#include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
 
@@ -13,7 +14,9 @@
 #include <algorithm>
 #include <string>
 #include <memory>
+#include <optional>
 
+// https://github.com/KhronosGroup/Vulkan-Hpp
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace
@@ -79,9 +82,12 @@ bool contains( const CStringVector& outer, const CStringVector& inner )
 
 Demo::Demo()
 {
-    PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr
-        = m_dynamic_loader.getProcAddress< PFN_vkGetInstanceProcAddr >( "vkGetInstanceProcAddr" );
-    VULKAN_HPP_DEFAULT_DISPATCHER.init( vkGetInstanceProcAddr );
+    // initialise the vulkan-hpp DispatchLoaderDynamic
+    {
+        PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr
+            = m_dynamic_loader.getProcAddress< PFN_vkGetInstanceProcAddr >( "vkGetInstanceProcAddr" );
+        VULKAN_HPP_DEFAULT_DISPATCHER.init( vkGetInstanceProcAddr );
+    }
 
     CStringVector available_instance_extensions;
     {
@@ -99,14 +105,15 @@ Demo::Demo()
     }
 
     CStringVector required_instance_extensions = m_mainWindow.getRequiredSDLVulkanExtensions();
+    {
+        insert_once( required_instance_extensions, VK_KHR_SURFACE_EXTENSION_NAME );
+        insert_once( required_instance_extensions, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME );
+        // if debug...
+        insert_once( required_instance_extensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
 
-    insert_once( required_instance_extensions, VK_KHR_SURFACE_EXTENSION_NAME );
-    insert_once( required_instance_extensions, VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME );
-    // if debug...
-    insert_once( required_instance_extensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
-
-    VERIFY_RTE_MSG(
-        contains( available_instance_extensions, required_instance_extensions ), "Required extensions not available" );
+        VERIFY_RTE_MSG( contains( available_instance_extensions, required_instance_extensions ),
+                        "Required extensions not available" );
+    }
 
     // if debug...
     CStringVector supportedValidationLayers;
@@ -140,59 +147,75 @@ Demo::Demo()
         }
     }
 
-    vk::ApplicationInfo app( "Vulkan Demo", {}, "Eds Vulkan Prototype", VK_MAKE_VERSION( 1, 0, 0 ) );
+    // initialise the instance
+    {
+        vk::ApplicationInfo app( "Vulkan Demo", {}, "Eds Vulkan Prototype", VK_MAKE_VERSION( 1, 0, 0 ) );
 
-    vk::InstanceCreateInfo instance_info( {}, &app, supportedValidationLayers, required_instance_extensions );
+        vk::InstanceCreateInfo instance_info( {}, &app, supportedValidationLayers, required_instance_extensions );
 
-    m_instance = vk::createInstance( instance_info );
+        m_instance = vk::createInstanceUnique( instance_info );
 
-    VULKAN_HPP_DEFAULT_DISPATCHER.init( m_instance );
+        // initialise the dispatcher to get function pointers for instance
+        VULKAN_HPP_DEFAULT_DISPATCHER.init( m_instance.get() );
+    }
 
-    m_surface = m_mainWindow.createVulkanSurface( m_instance );
+    // the surface
+    m_surface = m_mainWindow.createVulkanSurface( m_instance.get() );
     VERIFY_RTE_MSG( m_surface, "Failed to initialise surface" );
 
+    // select m_graphics_queue_index
     {
-        std::vector< vk::PhysicalDevice > gpus = m_instance.enumeratePhysicalDevices();
+        std::vector< vk::PhysicalDevice > gpus = m_instance->enumeratePhysicalDevices();
 
         for ( const vk::PhysicalDevice& gpu : gpus )
         {
-            std::vector< vk::QueueFamilyProperties > queue_family_properties = gpu.getQueueFamilyProperties();
-            if ( queue_family_properties.empty() )
+            if ( gpu.getProperties().deviceType == vk::PhysicalDeviceType::eDiscreteGpu )
             {
-                // throw std::runtime_error("No queue family found.");
-                continue;
-            }
-
-            for ( uint32_t j = 0; j < to_u32( queue_family_properties.size() ); j++ )
-            {
-                const vk::QueueFamilyProperties& prop = queue_family_properties[ j ];
-
-                vk::Bool32 supports_present = gpu.getSurfaceSupportKHR( j, m_surface );
-
-                // Find a queue family which supports graphics and presentation.
-                if ( ( prop.queueFlags & vk::QueueFlagBits::eGraphics ) && supports_present )
+                if ( gpu.getFeatures().geometryShader )
                 {
-                    m_physical_device      = gpu;
-                    m_graphics_queue_index = j;
-                    SPDLOG_TRACE( "Found GPU supporting graphics and presentation" );
-                    break;
+                    std::vector< vk::QueueFamilyProperties > queue_family_properties = gpu.getQueueFamilyProperties();
+                    if ( queue_family_properties.empty() )
+                    {
+                        // throw std::runtime_error("No queue family found.");
+                        continue;
+                    }
+
+                    for ( uint32_t j = 0; j < to_u32( queue_family_properties.size() ); j++ )
+                    {
+                        const vk::QueueFamilyProperties& prop = queue_family_properties[ j ];
+
+                        if ( const vk::Bool32 supports_present = gpu.getSurfaceSupportKHR( j, m_surface ) )
+                        {
+                            // Find a queue family which supports graphics and presentation.
+                            if ( prop.queueFlags & vk::QueueFlagBits::eGraphics )
+                            {
+                                m_physical_device      = gpu;
+                                m_graphics_queue_index = j;
+                                SPDLOG_TRACE( "Found GPU supporting graphics and presentation" );
+                                break;
+                            }
+                        }
+                    }
+                    if ( m_graphics_queue_index != -1 )
+                        break;
                 }
             }
-            if ( m_graphics_queue_index != -1 )
-                break;
         }
     }
 
     VERIFY_RTE_MSG( m_graphics_queue_index != -1, "Failed to initialise physical device" );
 
     uint32_t windowWidth = 0U, windowHeight = 0U;
+
+    vk::Extent2D swapchainExtent;
     {
         const vk::SurfaceCapabilitiesKHR surfaceCapabilities = m_physical_device.getSurfaceCapabilitiesKHR( m_surface );
-        m_mainWindow.getDrawableSize( windowWidth, windowHeight );
-        windowWidth  = std::min( std::max( windowWidth, surfaceCapabilities.minImageExtent.width ),
-                                 surfaceCapabilities.maxImageExtent.width );
-        windowHeight = std::min( std::max( windowHeight, surfaceCapabilities.minImageExtent.height ),
-                                 surfaceCapabilities.maxImageExtent.height );
+        const vk::Extent2D               windowExtent        = m_mainWindow.getDrawableSize();
+        swapchainExtent
+            = vk::Extent2D{ std::min( std::max( windowExtent.width, surfaceCapabilities.minImageExtent.width ),
+                                      surfaceCapabilities.maxImageExtent.width ),
+                            std::min( std::max( windowExtent.height, surfaceCapabilities.minImageExtent.height ),
+                                      surfaceCapabilities.maxImageExtent.height ) };
     }
 
     SPDLOG_INFO( "Created Vulkan Window with width: {} and height: {}", windowWidth, windowHeight );
@@ -209,7 +232,9 @@ Demo::Demo()
     }
 
     CStringVector required_device_extensions;
-    insert_once( required_device_extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME );
+    {
+        insert_once( required_device_extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME );
+    }
 
     VERIFY_RTE_MSG( contains( available_device_extensions, required_device_extensions ),
                     "Required device extensions not available" );
@@ -222,6 +247,7 @@ Demo::Demo()
     vk::DeviceCreateInfo device_info( {}, queue_info, {}, required_device_extensions );
 
     m_logical_device = m_physical_device.createDevice( device_info );
+
     // initialize function pointers for device
     VULKAN_HPP_DEFAULT_DISPATCHER.init( m_logical_device );
 
@@ -232,7 +258,29 @@ Demo::Demo()
 
     std::vector< vk::SurfaceFormatKHR > formats = m_physical_device.getSurfaceFormatsKHR( m_surface );
 
-    m_pDebugCallback = std::move( std::make_unique< DebugCallback >( m_instance ) );
+    m_pDebugCallback = std::move( std::make_unique< DebugCallback >( m_instance.get() ) );
+
+    vk::SurfaceCapabilitiesKHR          surfaceCapabilities = m_physical_device.getSurfaceCapabilitiesKHR( m_surface );
+    std::vector< vk::SurfaceFormatKHR > surfaceFormats      = m_physical_device.getSurfaceFormatsKHR( m_surface );
+    std::vector< vk::PresentModeKHR >   presentModes        = m_physical_device.getSurfacePresentModesKHR( m_surface );
+
+    VERIFY_RTE( !surfaceFormats.empty() );
+    VERIFY_RTE( !presentModes.empty() );
+
+    std::optional< vk::SurfaceFormatKHR > idealFormatOpt;
+
+    {
+        for ( const auto& format : surfaceFormats )
+        {
+            if ( format.format == vk::Format::eB8G8R8Srgb && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear )
+            {
+                idealFormatOpt = format;
+            }
+        }
+    }
+
+    //swapchainExtent
+
 }
 
 Demo::~Demo()
@@ -245,9 +293,9 @@ Demo::~Demo()
     }
     if ( m_surface )
     {
-        m_instance.destroySurfaceKHR( m_surface );
+        m_instance->destroySurfaceKHR( m_surface );
     }
-    m_instance.destroy();
+    // m_instance.destroy();
 }
 
 void Demo::frame() {}

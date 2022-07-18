@@ -5,6 +5,8 @@
 
 #include "spdlog/spdlog.h"
 
+#include <optional>
+
 namespace
 {
 
@@ -40,7 +42,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback( VkDebugUtilsMessageSeverity
 
     return VK_FALSE;
 }
-
+/*
 VkResult CreateDebugUtilsMessengerEXT( vk::Instance&                             instance,
                                        const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
                                        const VkAllocationCallbacks*              pAllocator,
@@ -73,7 +75,7 @@ void DestroyDebugUtilsMessengerEXT( vk::Instance&                instance,
     {
         func( instance, debugMessenger, pAllocator );
     }
-}
+}*/
 } // namespace
 
 namespace retail
@@ -94,14 +96,17 @@ DebugCallback::DebugCallback( vk::Instance& instance )
         createInfo.pfnUserCallback = debugCallback;
         createInfo.pUserData       = ( void* )this; // Optional
     }
+    m_debugMessenger = 
+        m_instance.createDebugUtilsMessengerEXT( createInfo, nullptr );
 
-    VK_CHECK( CreateDebugUtilsMessengerEXT( m_instance, &createInfo, nullptr, m_debugMessenger ) );
+    //VK_CHECK( CreateDebugUtilsMessengerEXT( m_instance, &createInfo, nullptr, m_debugMessenger ) );
 }
 
 DebugCallback::~DebugCallback()
 {
-    //
-    DestroyDebugUtilsMessengerEXT( m_instance, m_debugMessenger, nullptr );
+    m_instance.destroyDebugUtilsMessengerEXT( m_debugMessenger, nullptr);
+
+    //VK_CHECK( m_instance.destroyDebugUtilsMessengerEXT( m_debugMessenger, std::nullopt ) );
 }
 
 } // namespace retail

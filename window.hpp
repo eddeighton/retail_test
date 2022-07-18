@@ -2,6 +2,8 @@
 #define WINDOW_20_APRIL_2022
 
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_handles.hpp>
+
 #include <SDL2/SDL.h>
 
 #include <memory>
@@ -24,9 +26,9 @@ namespace retail
 
         std::vector< const char* > getRequiredSDLVulkanExtensions() const;
 
-        VkSurfaceKHR createVulkanSurface( VkInstance instance ) const;
+        vk::SurfaceKHR createVulkanSurface( VkInstance instance ) const;
 
-        void getDrawableSize( uint32_t& width, uint32_t& height ) const;
+        vk::Extent2D getDrawableSize() const;
 
         void onResize();
 
