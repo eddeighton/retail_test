@@ -1,11 +1,13 @@
 
 #include "demo.hpp"
+#include "debug.hpp"
 
 #include "common/assert_verify.hpp"
+#include "common/file.hpp"
 
-#include "debug.hpp"
 #include "spdlog/spdlog.h"
 
+#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
@@ -53,6 +55,19 @@ bool contains( std::vector< vk::ExtensionProperties > const& extensionProperties
         }
     }
     return true;
+}
+
+void loadShader( const boost::filesystem::path& filePath, std::vector< std::uint32_t >& shaderByteCode )
+{
+    std::ifstream inputFileStream( filePath.native().c_str(), std::ios::in );
+    if ( !inputFileStream.good() )
+    {
+        THROW_RTE( "Failed to open file: " << filePath.string() );
+    }
+    // default allocator will ensure alignment for std::uint32_t is ok even though vector for char
+    std::vector< char > temp{ std::istreambuf_iterator< char >( inputFileStream ), std::istreambuf_iterator< char >() };
+    shaderByteCode.resize( ( temp.size() / 4U ) + ( ( temp.size() % 4U > 0U ) ? 1U : 0U ) );
+    memcpy( shaderByteCode.data(), reinterpret_cast< std::uint32_t* >( temp.data() ), shaderByteCode.size() );
 }
 
 Demo::Demo()
@@ -315,6 +330,125 @@ Demo::Demo()
         vk::ImageView imageView = m_logical_device.createImageView( imageViewCreateInfo );
         m_swapChainImageViews.push_back( imageView );
     }
+
+    // load shaders
+
+    vk::ShaderModule vertexShader;
+    {
+        std::vector< std::uint32_t > vertShaderData;
+        loadShader( "vert.spv", vertShaderData );
+        vk::ShaderModuleCreateInfo shaderModuleCreateInfo{ vk::ShaderModuleCreateFlags{}, vertShaderData };
+        vertexShader = m_logical_device.createShaderModule( shaderModuleCreateInfo );
+    }
+    vk::ShaderModule fragmentShader;
+    {
+        std::vector< std::uint32_t > fragShaderData;
+        loadShader( "frag.spv", fragShaderData );
+        vk::ShaderModuleCreateInfo shaderModuleCreateInfo{ vk::ShaderModuleCreateFlags{}, fragShaderData };
+        fragmentShader = m_logical_device.createShaderModule( shaderModuleCreateInfo );
+    }
+
+    const vk::PipelineShaderStageCreateInfo vertShaderCreateInfo = {
+        vk::PipelineShaderStageCreateFlags{},
+        vk::ShaderStageFlagBits::eVertex,
+        vertexShader,
+        "main",
+        {} // pSpecializationInfo_
+    };
+
+    const vk::PipelineShaderStageCreateInfo fragShaderCreateInfo = {
+        vk::PipelineShaderStageCreateFlags{},
+        vk::ShaderStageFlagBits::eFragment,
+        fragmentShader,
+        "main",
+        {} // pSpecializationInfo_
+    };
+
+    const vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderCreateInfo, fragShaderCreateInfo };
+
+    const std::vector< vk::DynamicState > dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+
+    const vk::PipelineDynamicStateCreateInfo dynamicState{ vk::PipelineDynamicStateCreateFlags{}, dynamicStates };
+
+    const vk::PipelineVertexInputStateCreateInfo vertexInputCreateInfo = {
+        vk::PipelineVertexInputStateCreateFlags{},
+        {}, // std::vector< VertexInputBindingDescription >
+        {}  // std::vector< VertexInputAttributeDescription >
+    };
+
+    const vk::PipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo
+        = { vk::PipelineInputAssemblyStateCreateFlags{}, vk::PrimitiveTopology::eTriangleList, false };
+
+    const vk::Viewport viewport
+        = { 0.0f, 0.0f, static_cast< float >( swapchainExtent.width ), static_cast< float >( swapchainExtent.height ),
+            0.0f, 1.0f };
+
+    const vk::Rect2D scissorRect = { { 0, 0 }, swapchainExtent };
+
+    std::array< vk::Viewport, 1 >       viewports{ viewport };
+    std::array< vk::Rect2D, 1 >         scissorRects{ scissorRect };
+    vk::PipelineViewportStateCreateInfo viewportCreateInfo
+        = { vk::PipelineViewportStateCreateFlags{}, viewports, scissorRects };
+
+    vk::PipelineRasterizationStateCreateInfo rasterCreateInfo = {
+        vk::PipelineRasterizationStateCreateFlags{},
+        false, // depthClampEnable_
+        false, // rasterizerDiscardEnable_
+        vk::PolygonMode::eFill,
+        vk::CullModeFlags{},
+        vk::FrontFace::eClockwise,
+        false, // depthBiasEnable_
+        0.0f,  // depthBiasConstantFactor_
+        0.0f,  // depthBiasClamp_
+        0.0f,  // depthBiasSlopeFactor_
+        1.0f   // lineWidth_
+    };
+
+    vk::PipelineMultisampleStateCreateInfo multisamplingCreateInfo = {
+        vk::PipelineMultisampleStateCreateFlags{},
+        vk::SampleCountFlagBits::e1,
+        false,   // sampleShadingEnable_
+        1.0f,    // minSampleShading_
+        nullptr, // pSampleMask_
+        false,   // alphaToCoverageEnable_
+        false    // alphaToOneEnable_
+    };
+
+    const std::array< vk::PipelineColorBlendAttachmentState, 1 > attachments
+        = { vk::PipelineColorBlendAttachmentState{ false,                  // blendEnable_
+                                                   vk::BlendFactor::eZero, // srcColorBlendFactor_
+                                                   vk::BlendFactor::eZero, // dstColorBlendFactor_
+                                                   vk::BlendOp::eAdd,      // colorBlendOp_
+                                                   vk::BlendFactor::eZero, // srcAlphaBlendFactor_
+                                                   vk::BlendFactor::eZero, // dstAlphaBlendFactor_
+                                                   vk::BlendOp::eAdd,      // alphaBlendOp_
+                                                   vk::ColorComponentFlags{} };
+
+    vk::PipelineColorBlendStateCreateInfo colorBlendCreateInfo = { vk::PipelineColorBlendStateCreateFlags{},
+                                                                   false, // logicOpEnable_
+                                                                   vk::LogicOp::eCopy,
+                                                                   attachments,
+                                                                   { 0.0f, 0.0f, 0.0f, 0.0f } };
+
+    {
+        vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo = { vk::PipelineLayoutCreateFlags{}, {}, {} };
+        m_pipelineLayout = m_logical_device.createPipelineLayout( pipelineLayoutCreateInfo );
+    }
+
+    vk::AttachmentDescription colorAttachment = {
+        vk::AttachmentDescriptionFlags{}, // flags_
+        idealFormatOpt.value().format,    // format_
+        vk::SampleCountFlagBits::e1,      // samples_
+        vk::AttachmentLoadOp::eLoad,      // loadOp_
+        vk::AttachmentStoreOp::eStore,    // storeOp_
+        vk::AttachmentLoadOp::eLoad,      // stencilLoadOp_
+        vk::AttachmentStoreOp::eStore,    // stencilStoreOp_
+        vk::ImageLayout::eUndefined,      // initialLayout_
+        vk::ImageLayout::eUndefined       // finalLayout_
+    };
+
+    m_logical_device.destroyShaderModule( vertexShader );
+    m_logical_device.destroyShaderModule( fragmentShader );
 }
 
 Demo::~Demo()
@@ -322,6 +456,10 @@ Demo::~Demo()
     for ( vk::ImageView& imageView : m_swapChainImageViews )
     {
         m_logical_device.destroyImageView( imageView );
+    }
+    if ( m_pipelineLayout )
+    {
+        m_logical_device.destroyPipelineLayout( m_pipelineLayout );
     }
 
     if ( m_logical_device )
