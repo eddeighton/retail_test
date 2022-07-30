@@ -64,10 +64,14 @@ void loadShader( const boost::filesystem::path& filePath, std::vector< std::uint
     {
         THROW_RTE( "Failed to open file: " << filePath.string() );
     }
+
     // default allocator will ensure alignment for std::uint32_t is ok even though vector for char
-    std::vector< char > temp{ std::istreambuf_iterator< char >( inputFileStream ), std::istreambuf_iterator< char >() };
-    shaderByteCode.resize( ( temp.size() / 4U ) + ( ( temp.size() % 4U > 0U ) ? 1U : 0U ) );
-    memcpy( shaderByteCode.data(), reinterpret_cast< std::uint32_t* >( temp.data() ), shaderByteCode.size() );
+    const std::vector< char > temp{
+        std::istreambuf_iterator< char >( inputFileStream ), std::istreambuf_iterator< char >() };
+    VERIFY_RTE( temp.size() );
+    const std::size_t szSize = ( temp.size() / 4U ) + ( ( temp.size() % 4U > 0U ) ? 1U : 0U );
+    shaderByteCode.resize( szSize );
+    memcpy( shaderByteCode.data(), temp.data(), szSize * sizeof( std::uint32_t ) );
 }
 
 Demo::Demo()
@@ -339,6 +343,7 @@ Demo::Demo()
         loadShader( "vert.spv", vertShaderData );
         vk::ShaderModuleCreateInfo shaderModuleCreateInfo{ vk::ShaderModuleCreateFlags{}, vertShaderData };
         vertexShader = m_logical_device.createShaderModule( shaderModuleCreateInfo );
+        SPDLOG_INFO( "Loaded vertex shader: {}", "vert.spv" );
     }
     vk::ShaderModule fragmentShader;
     {
@@ -346,6 +351,7 @@ Demo::Demo()
         loadShader( "frag.spv", fragShaderData );
         vk::ShaderModuleCreateInfo shaderModuleCreateInfo{ vk::ShaderModuleCreateFlags{}, fragShaderData };
         fragmentShader = m_logical_device.createShaderModule( shaderModuleCreateInfo );
+        SPDLOG_INFO( "Loaded fragment shader: {}", "frag.spv" );
     }
 
     const vk::PipelineShaderStageCreateInfo vertShaderCreateInfo = {
@@ -364,11 +370,8 @@ Demo::Demo()
         {} // pSpecializationInfo_
     };
 
-    const vk::PipelineShaderStageCreateInfo shaderStages[] = { vertShaderCreateInfo, fragShaderCreateInfo };
-
-    const std::vector< vk::DynamicState > dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
-
-    const vk::PipelineDynamicStateCreateInfo dynamicState{ vk::PipelineDynamicStateCreateFlags{}, dynamicStates };
+    const std::array< vk::PipelineShaderStageCreateInfo, 2 > shaderStages
+        = { vertShaderCreateInfo, fragShaderCreateInfo };
 
     const vk::PipelineVertexInputStateCreateInfo vertexInputCreateInfo = {
         vk::PipelineVertexInputStateCreateFlags{},
@@ -422,7 +425,7 @@ Demo::Demo()
                                                    vk::BlendFactor::eZero, // srcAlphaBlendFactor_
                                                    vk::BlendFactor::eZero, // dstAlphaBlendFactor_
                                                    vk::BlendOp::eAdd,      // alphaBlendOp_
-                                                   vk::ColorComponentFlags{} };
+                                                   vk::ColorComponentFlags{} } };
 
     vk::PipelineColorBlendStateCreateInfo colorBlendCreateInfo = { vk::PipelineColorBlendStateCreateFlags{},
                                                                    false, // logicOpEnable_
@@ -433,19 +436,68 @@ Demo::Demo()
     {
         vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo = { vk::PipelineLayoutCreateFlags{}, {}, {} };
         m_pipelineLayout = m_logical_device.createPipelineLayout( pipelineLayoutCreateInfo );
+        SPDLOG_INFO( "Created pipeline layout" );
     }
 
-    vk::AttachmentDescription colorAttachment = {
-        vk::AttachmentDescriptionFlags{}, // flags_
-        idealFormatOpt.value().format,    // format_
-        vk::SampleCountFlagBits::e1,      // samples_
-        vk::AttachmentLoadOp::eLoad,      // loadOp_
-        vk::AttachmentStoreOp::eStore,    // storeOp_
-        vk::AttachmentLoadOp::eLoad,      // stencilLoadOp_
-        vk::AttachmentStoreOp::eStore,    // stencilStoreOp_
-        vk::ImageLayout::eUndefined,      // initialLayout_
-        vk::ImageLayout::eUndefined       // finalLayout_
-    };
+    const std::vector< vk::DynamicState > dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor };
+    const vk::PipelineDynamicStateCreateInfo dynamicState{ vk::PipelineDynamicStateCreateFlags{}, dynamicStates };
+
+    {
+        const std::array< vk::AttachmentDescription, 1 > colorAttachments = { vk::AttachmentDescription{
+            vk::AttachmentDescriptionFlags{}, // flags_
+            idealFormatOpt.value().format,    // format_
+            vk::SampleCountFlagBits::e1,      // samples_
+            vk::AttachmentLoadOp::eClear,     // loadOp_
+            vk::AttachmentStoreOp::eStore,    // storeOp_
+            vk::AttachmentLoadOp::eDontCare,  // stencilLoadOp_
+            vk::AttachmentStoreOp::eDontCare, // stencilStoreOp_
+            vk::ImageLayout::eUndefined,      // initialLayout_
+            vk::ImageLayout::ePresentSrcKHR   // finalLayout_
+        } };
+
+        const std::array< vk::AttachmentReference, 1 > subpassColorAttachments
+            = { vk::AttachmentReference{ 0, vk::ImageLayout::eAttachmentOptimal } };
+
+        const std::array< vk::SubpassDescription, 1 > subpassDescriptions = { vk::SubpassDescription{
+            vk::SubpassDescriptionFlags{},
+            vk::PipelineBindPoint::eGraphics,
+            {},                      // inputAttachments_
+            subpassColorAttachments, // colorAttachments_
+            {},                      // resolveAttachments_
+            nullptr,                 // pDepthStencilAttachment_
+            {}                       // preserveAttachments_
+        } };
+
+        vk::RenderPassCreateInfo renderPassCreateInfo = {
+            vk::RenderPassCreateFlags{}, colorAttachments, subpassDescriptions, {}, // SubpassDependency
+        };
+        m_renderPass = m_logical_device.createRenderPass( renderPassCreateInfo );
+        SPDLOG_INFO( "Created render pass" );
+    }
+
+    {
+        vk::GraphicsPipelineCreateInfo pipelineCreateInfo = {
+            vk::PipelineCreateFlags{},
+            shaderStages,
+            &vertexInputCreateInfo,
+            &inputAssemblyCreateInfo,
+            nullptr, // pTessellationState_
+            &viewportCreateInfo,
+            &rasterCreateInfo,
+            &multisamplingCreateInfo,
+            nullptr,
+            &colorBlendCreateInfo,
+            &dynamicState,
+            m_pipelineLayout,
+            m_renderPass,
+            0,
+            {}, // basePipelineHandle_
+            -1  // basePipelineIndex_
+        };
+
+        m_pipeline = m_logical_device.createGraphicsPipeline( nullptr, pipelineCreateInfo ).value;
+        SPDLOG_INFO( "Created pipeline" );
+    }
 
     m_logical_device.destroyShaderModule( vertexShader );
     m_logical_device.destroyShaderModule( fragmentShader );
@@ -456,6 +508,14 @@ Demo::~Demo()
     for ( vk::ImageView& imageView : m_swapChainImageViews )
     {
         m_logical_device.destroyImageView( imageView );
+    }
+    if ( m_pipeline )
+    {
+        m_logical_device.destroyPipeline( m_pipeline );
+    }
+    if ( m_renderPass )
+    {
+        m_logical_device.destroyRenderPass( m_renderPass );
     }
     if ( m_pipelineLayout )
     {

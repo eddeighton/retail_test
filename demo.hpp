@@ -31,6 +31,8 @@ private:
     std::vector< vk::Image >     m_swapChainImages;
     std::vector< vk::ImageView > m_swapChainImageViews;
     vk::PipelineLayout           m_pipelineLayout;
+    vk::RenderPass               m_renderPass;
+    vk::Pipeline                 m_pipeline;
 
     std::optional< uint32_t >        m_graphics_queue_index;
     std::unique_ptr< DebugCallback > m_pDebugCallback;
