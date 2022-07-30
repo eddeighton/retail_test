@@ -23,4 +23,5 @@ imgui.ini
 *.hxx
 *.cxx
 *.json
+*.spv
 

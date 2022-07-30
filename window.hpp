@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <set>
 
 namespace retail
 {
@@ -24,7 +25,7 @@ namespace retail
 
         Window( const Config& config );
 
-        std::vector< const char* > getRequiredSDLVulkanExtensions() const;
+        std::set< std::string > getRequiredSDLVulkanExtensions() const;
 
         vk::SurfaceKHR createVulkanSurface( VkInstance instance ) const;
 

@@ -16,7 +16,7 @@ Window::Window( const Window::Config& config )
     VERIFY_RTE( m_pWnd );
 }
 
-std::vector< const char* > Window::getRequiredSDLVulkanExtensions() const
+std::set< std::string > Window::getRequiredSDLVulkanExtensions() const
 {
     unsigned int count = 0U;
     if ( !SDL_Vulkan_GetInstanceExtensions( m_pWnd.get(), &count, nullptr ) )
@@ -29,7 +29,7 @@ std::vector< const char* > Window::getRequiredSDLVulkanExtensions() const
     {
         throw std::runtime_error( "Failed to get sdl vulkan extension requirements" );
     }
-    return requiredExtensions;
+    return std::set< std::string >{ requiredExtensions.begin(), requiredExtensions.end() };
 }
 
 vk::SurfaceKHR Window::createVulkanSurface( VkInstance instance ) const
