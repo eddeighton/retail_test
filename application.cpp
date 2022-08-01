@@ -39,9 +39,10 @@ Application::~Application()
 
 void Application::run()
 {
+    std::uint32_t uiFrame = 0U;
     while( m_bContinue )
     {
-        frame();
+        frame( ++uiFrame );
 
         SDL_Event ev;
         while( SDL_PollEvent( &ev ) )

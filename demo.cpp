@@ -249,11 +249,10 @@ Demo::Demo()
         VERIFY_RTE_MSG( idealFormatOpt.has_value(), "Failed to find ideal format" );
     }
 
-    vk::Extent2D swapchainExtent;
     {
         uint32_t           windowWidth = 0U, windowHeight = 0U;
         const vk::Extent2D windowExtent = m_mainWindow.getDrawableSize();
-        swapchainExtent
+        m_swapchainExtent
             = vk::Extent2D{ std::min( std::max( windowExtent.width, surfaceCapabilities.minImageExtent.width ),
                                       surfaceCapabilities.maxImageExtent.width ),
                             std::min( std::max( windowExtent.height, surfaceCapabilities.minImageExtent.height ),
@@ -295,7 +294,7 @@ Demo::Demo()
             std::min( surfaceCapabilities.minImageCount + 1, surfaceCapabilities.maxImageCount ),
             idealFormatOpt.value().format,
             idealFormatOpt.value().colorSpace,
-            swapchainExtent,
+            m_swapchainExtent,
             1, // imageArrayLayers_
             vk::ImageUsageFlagBits::eColorAttachment,
             VULKAN_HPP_NAMESPACE::SharingMode::eExclusive,
@@ -382,11 +381,11 @@ Demo::Demo()
     const vk::PipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo
         = { vk::PipelineInputAssemblyStateCreateFlags{}, vk::PrimitiveTopology::eTriangleList, false };
 
-    const vk::Viewport viewport
-        = { 0.0f, 0.0f, static_cast< float >( swapchainExtent.width ), static_cast< float >( swapchainExtent.height ),
-            0.0f, 1.0f };
+    const vk::Viewport viewport = {
+        0.0f, 0.0f, static_cast< float >( m_swapchainExtent.width ), static_cast< float >( m_swapchainExtent.height ),
+        0.0f, 1.0f };
 
-    const vk::Rect2D scissorRect = { { 0, 0 }, swapchainExtent };
+    const vk::Rect2D scissorRect = { { 0, 0 }, m_swapchainExtent };
 
     std::array< vk::Viewport, 1 >       viewports{ viewport };
     std::array< vk::Rect2D, 1 >         scissorRects{ scissorRect };
@@ -501,10 +500,77 @@ Demo::Demo()
 
     m_logical_device.destroyShaderModule( vertexShader );
     m_logical_device.destroyShaderModule( fragmentShader );
+
+    for ( const vk::ImageView& imageView : m_swapChainImageViews )
+    {
+        std::array< vk::ImageView, 1 > attachments{ imageView };
+        vk::FramebufferCreateInfo      frameBufferCreateInfo = {
+            vk::FramebufferCreateFlags{},
+            m_renderPass,
+            attachments,
+            m_swapchainExtent.width,
+            m_swapchainExtent.height,
+            1 // layers
+        };
+
+        vk::Framebuffer frameBuffer = m_logical_device.createFramebuffer( frameBufferCreateInfo );
+        m_frameBuffers.push_back( frameBuffer );
+    }
+
+    {
+        vk::CommandPoolCreateInfo commandPoolCreateInfo
+            = { vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_graphics_queue_index.value() };
+        m_commandPool = m_logical_device.createCommandPool( commandPoolCreateInfo );
+    }
+
+    {
+        vk::CommandBufferAllocateInfo commandBufferAllocateInfo
+            = { m_commandPool, vk::CommandBufferLevel::ePrimary, 1 };
+        std::vector< vk::CommandBuffer > result = m_logical_device.allocateCommandBuffers( commandBufferAllocateInfo );
+        m_commandBuffer                         = result.front();
+    }
+}
+
+void Demo::frame( std::uint32_t uiFrame )
+{
+    const vk::CommandBufferBeginInfo commandBufferBeginInfo
+        = { vk::CommandBufferUsageFlagBits::eOneTimeSubmit, nullptr };
+    m_commandBuffer.begin( commandBufferBeginInfo );
+
+    const std::array< vk::ClearValue, 1 > clearValues{
+        vk::ClearValue{ vk::ClearColorValue{ std::array< float, 4 >{ 0.0f, 0.0f, 0.0f, 1.0f } } } };
+    const vk::RenderPassBeginInfo renderPassBeginInfo
+        = { m_renderPass, m_frameBuffers[ uiFrame % 3 ],
+            vk::Rect2D{ { 0, 0 }, { m_swapchainExtent.width, m_swapchainExtent.height } }, clearValues };
+    m_commandBuffer.beginRenderPass( renderPassBeginInfo, vk::SubpassContents::eInline );
+
+    m_commandBuffer.bindPipeline( vk::PipelineBindPoint::eGraphics, m_pipeline );
+
+    const vk::Viewport viewport = {
+        0.0f, 0.0f, static_cast< float >( m_swapchainExtent.width ), static_cast< float >( m_swapchainExtent.height ),
+        0.0f, 1.0f };
+    m_commandBuffer.setViewport( 0, viewport );
+
+    const std::array< vk::Rect2D, 1 > scissors
+        = { vk::Rect2D{ { 0, 0 }, { m_swapchainExtent.width, m_swapchainExtent.height } } };
+    m_commandBuffer.setScissor( 0, scissors );
+
+    m_commandBuffer.draw( 3, 1, 0, 0 );
+
+    m_commandBuffer.endRenderPass();
+    m_commandBuffer.end();
 }
 
 Demo::~Demo()
 {
+    if ( m_commandPool )
+    {
+        m_logical_device.destroyCommandPool( m_commandPool );
+    }
+    for ( vk::Framebuffer& frameBuffer : m_frameBuffers )
+    {
+        m_logical_device.destroyFramebuffer( frameBuffer );
+    }
     for ( vk::ImageView& imageView : m_swapChainImageViews )
     {
         m_logical_device.destroyImageView( imageView );
@@ -533,7 +599,5 @@ Demo::~Demo()
 
     m_pDebugCallback.reset();
 }
-
-void Demo::frame() {}
 
 } // namespace retail
