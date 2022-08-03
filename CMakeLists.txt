@@ -64,6 +64,7 @@ add_executable( retail_test ${RETAIL_SOURCE} )
 add_dependencies( retail_test vertex_shader_compilation )
 add_dependencies( retail_test fragment_shader_compilation )
 
+# see where the VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE is defined
 # add VULKAN_HPP_STORAGE_SHARED and VULKAN_HPP_STORAGE_SHARED_EXPORT 
 # if in shared object see https://github.com/KhronosGroup/Vulkan-Hpp
 target_compile_definitions( retail_test PUBLIC VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)

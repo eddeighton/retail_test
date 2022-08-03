@@ -8,6 +8,7 @@
 #include <vulkan/vulkan.hpp>
 
 #include <optional>
+#include <vulkan/vulkan_handles.hpp>
 
 namespace retail
 {
@@ -18,7 +19,7 @@ public:
     Demo();
     ~Demo();
 
-    virtual void frame( std::uint32_t uiFrame );
+    virtual void frame();
 
 private:
     vk::DynamicLoader              m_dynamic_loader;
@@ -36,6 +37,9 @@ private:
     std::vector< vk::Framebuffer > m_frameBuffers;
     vk::CommandPool                m_commandPool;
     vk::CommandBuffer              m_commandBuffer;
+    vk::Semaphore                  m_imageAvailableSemaphore;
+    vk::Semaphore                  m_renderFinishedSemaphore;
+    vk::Fence                      m_inFlightFence;
 
     vk::Extent2D                     m_swapchainExtent;
     std::optional< uint32_t >        m_graphics_queue_index;

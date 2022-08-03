@@ -13,7 +13,7 @@ namespace retail
         Application();
         ~Application();
 
-        virtual void frame( std::uint32_t uiFrame ) = 0;
+        virtual void frame() = 0;
 
         void run();
 

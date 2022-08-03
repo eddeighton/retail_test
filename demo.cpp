@@ -7,7 +7,9 @@
 
 #include "spdlog/spdlog.h"
 
+#include <cstdint>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_enums.hpp>
 #include <vulkan/vulkan_handles.hpp>
 #include <vulkan/vulkan_structs.hpp>
@@ -240,8 +242,10 @@ Demo::Demo()
         {
             if ( !idealFormatOpt.has_value() )
                 idealFormatOpt = format;
-            if ( format.format == vk::Format::eB8G8R8Srgb && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear )
+            if ( format.format == vk::Format::eR32G32B32A32Sfloat /*&& 
+                format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear*/ )
             {
+                SPDLOG_INFO( "Found format and colour space" );
                 idealFormatOpt = format;
                 break;
             }
@@ -299,7 +303,7 @@ Demo::Demo()
             vk::ImageUsageFlagBits::eColorAttachment,
             VULKAN_HPP_NAMESPACE::SharingMode::eExclusive,
             queues,
-            vk::SurfaceTransformFlagBitsKHR::eIdentity,
+            surfaceCapabilities.currentTransform, // vk::SurfaceTransformFlagBitsKHR::eIdentity,
             vk::CompositeAlphaFlagBitsKHR::eOpaque,
             bestPresentationMode.value(),
             true, // clipped_
@@ -397,7 +401,7 @@ Demo::Demo()
         false, // depthClampEnable_
         false, // rasterizerDiscardEnable_
         vk::PolygonMode::eFill,
-        vk::CullModeFlags{},
+        vk::CullModeFlagBits::eBack, // vk::CullModeFlags{},
         vk::FrontFace::eClockwise,
         false, // depthBiasEnable_
         0.0f,  // depthBiasConstantFactor_
@@ -408,14 +412,11 @@ Demo::Demo()
 
     vk::PipelineMultisampleStateCreateInfo multisamplingCreateInfo = {
         vk::PipelineMultisampleStateCreateFlags{},
-        vk::SampleCountFlagBits::e1,
-        false,   // sampleShadingEnable_
-        1.0f,    // minSampleShading_
-        nullptr, // pSampleMask_
-        false,   // alphaToCoverageEnable_
-        false    // alphaToOneEnable_
+        vk::SampleCountFlagBits::e1
     };
 
+    vk::ColorComponentFlags colorComponentFlags( vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG
+                                                 | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA );
     const std::array< vk::PipelineColorBlendAttachmentState, 1 > attachments
         = { vk::PipelineColorBlendAttachmentState{ false,                  // blendEnable_
                                                    vk::BlendFactor::eZero, // srcColorBlendFactor_
@@ -424,13 +425,13 @@ Demo::Demo()
                                                    vk::BlendFactor::eZero, // srcAlphaBlendFactor_
                                                    vk::BlendFactor::eZero, // dstAlphaBlendFactor_
                                                    vk::BlendOp::eAdd,      // alphaBlendOp_
-                                                   vk::ColorComponentFlags{} } };
+                                                   colorComponentFlags } };
 
     vk::PipelineColorBlendStateCreateInfo colorBlendCreateInfo = { vk::PipelineColorBlendStateCreateFlags{},
                                                                    false, // logicOpEnable_
-                                                                   vk::LogicOp::eCopy,
+                                                                   vk::LogicOp::eNoOp,
                                                                    attachments,
-                                                                   { 0.0f, 0.0f, 0.0f, 0.0f } };
+                                                                   { 1.0f, 1.0f, 1.0f, 1.0f } };
 
     {
         vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo = { vk::PipelineLayoutCreateFlags{}, {}, {} };
@@ -467,9 +468,24 @@ Demo::Demo()
             {}                       // preserveAttachments_
         } };
 
-        vk::RenderPassCreateInfo renderPassCreateInfo = {
-            vk::RenderPassCreateFlags{}, colorAttachments, subpassDescriptions, {}, // SubpassDependency
+        // clang-format off
+        const std::array< vk::SubpassDependency, 1 > subpassDependencies = 
+        { 
+            vk::SubpassDependency
+            {
+                VK_SUBPASS_EXTERNAL, 
+                0, //
+                vk::PipelineStageFlags{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }, // srcStageMask_
+                vk::PipelineStageFlags{ VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }, // dstStageMask_
+                vk::AccessFlags{}, // srcAccessMask_
+                vk::AccessFlags{ VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT }, // dstAccessMask_
+                vk::DependencyFlags{}
+            } 
         };
+        // clang-format on
+
+        vk::RenderPassCreateInfo renderPassCreateInfo
+            = { vk::RenderPassCreateFlags{}, colorAttachments, subpassDescriptions, subpassDependencies };
         m_renderPass = m_logical_device.createRenderPass( renderPassCreateInfo );
         SPDLOG_INFO( "Created render pass" );
     }
@@ -491,7 +507,7 @@ Demo::Demo()
             m_renderPass,
             0,
             {}, // basePipelineHandle_
-            -1  // basePipelineIndex_
+            {}  // basePipelineIndex_
         };
 
         m_pipeline = m_logical_device.createGraphicsPipeline( nullptr, pipelineCreateInfo ).value;
@@ -529,40 +545,96 @@ Demo::Demo()
         std::vector< vk::CommandBuffer > result = m_logical_device.allocateCommandBuffers( commandBufferAllocateInfo );
         m_commandBuffer                         = result.front();
     }
+
+    {
+        vk::SemaphoreCreateInfo semaphoreCreateInfo = { vk::SemaphoreCreateFlags{} };
+        m_imageAvailableSemaphore                   = m_logical_device.createSemaphore( semaphoreCreateInfo );
+        m_renderFinishedSemaphore                   = m_logical_device.createSemaphore( semaphoreCreateInfo );
+    }
+    {
+        vk::FenceCreateInfo fenceCreateInfo = { vk::FenceCreateFlagBits::eSignaled };
+        m_inFlightFence                     = m_logical_device.createFence( fenceCreateInfo );
+    }
 }
 
-void Demo::frame( std::uint32_t uiFrame )
+void Demo::frame()
 {
+    auto r = m_logical_device.waitForFences( m_inFlightFence, true, UINT64_MAX );
+    VK_CHECK( r );
+    m_logical_device.resetFences( m_inFlightFence );
+
+    std::uint32_t uiImageIndex = 0;
+    auto          r2           = m_logical_device.acquireNextImageKHR(
+                           m_swapchain, UINT64_MAX, m_imageAvailableSemaphore, VK_NULL_HANDLE, &uiImageIndex );
+    VK_CHECK( r2 );
+
+    m_commandBuffer.reset( vk::CommandBufferResetFlagBits{} );
+
     const vk::CommandBufferBeginInfo commandBufferBeginInfo
         = { vk::CommandBufferUsageFlagBits::eOneTimeSubmit, nullptr };
     m_commandBuffer.begin( commandBufferBeginInfo );
+    {
+        const std::array< vk::ClearValue, 1 > clearValues{
+            vk::ClearValue{ vk::ClearColorValue{ std::array< float, 4 >{ 0.0f, 0.0f, 0.5f, 1.0f } } } };
+        const vk::RenderPassBeginInfo renderPassBeginInfo
+            = { m_renderPass, m_frameBuffers[ uiImageIndex ], vk::Rect2D{ { 0, 0 }, m_swapchainExtent }, clearValues };
+        m_commandBuffer.beginRenderPass( renderPassBeginInfo, vk::SubpassContents::eInline );
+        {
+            m_commandBuffer.bindPipeline( vk::PipelineBindPoint::eGraphics, m_pipeline );
 
-    const std::array< vk::ClearValue, 1 > clearValues{
-        vk::ClearValue{ vk::ClearColorValue{ std::array< float, 4 >{ 0.0f, 0.0f, 0.0f, 1.0f } } } };
-    const vk::RenderPassBeginInfo renderPassBeginInfo
-        = { m_renderPass, m_frameBuffers[ uiFrame % 3 ],
-            vk::Rect2D{ { 0, 0 }, { m_swapchainExtent.width, m_swapchainExtent.height } }, clearValues };
-    m_commandBuffer.beginRenderPass( renderPassBeginInfo, vk::SubpassContents::eInline );
+            const vk::Viewport viewport = { 0.0f,
+                                            0.0f,
+                                            static_cast< float >( m_swapchainExtent.width ),
+                                            static_cast< float >( m_swapchainExtent.height ),
+                                            0.0f,
+                                            1.0f };
+            m_commandBuffer.setViewport( 0, viewport );
 
-    m_commandBuffer.bindPipeline( vk::PipelineBindPoint::eGraphics, m_pipeline );
+            const std::array< vk::Rect2D, 1 > scissors
+                = { vk::Rect2D{ { 0, 0 }, { m_swapchainExtent.width, m_swapchainExtent.height } } };
+            m_commandBuffer.setScissor( 0, scissors );
 
-    const vk::Viewport viewport = {
-        0.0f, 0.0f, static_cast< float >( m_swapchainExtent.width ), static_cast< float >( m_swapchainExtent.height ),
-        0.0f, 1.0f };
-    m_commandBuffer.setViewport( 0, viewport );
-
-    const std::array< vk::Rect2D, 1 > scissors
-        = { vk::Rect2D{ { 0, 0 }, { m_swapchainExtent.width, m_swapchainExtent.height } } };
-    m_commandBuffer.setScissor( 0, scissors );
-
-    m_commandBuffer.draw( 3, 1, 0, 0 );
-
-    m_commandBuffer.endRenderPass();
+            m_commandBuffer.draw( 3, 1, 0, 0 );
+        }
+        m_commandBuffer.endRenderPass();
+    }
     m_commandBuffer.end();
+
+    const vk::PipelineStageFlags flags{ vk::PipelineStageFlagBits::eColorAttachmentOutput };
+    vk::SubmitInfo submitInfo = { m_imageAvailableSemaphore, flags, m_commandBuffer, m_renderFinishedSemaphore };
+    m_queue.submit( submitInfo, m_inFlightFence );
+
+    // const std::array< std::uint32_t, 1 > imageIndices{ uiImageIndex };
+    const vk::PresentInfoKHR presentInfo = { m_renderFinishedSemaphore, m_swapchain, uiImageIndex };
+
+    vk::Result result = m_queue.presentKHR( presentInfo );
+    switch ( result )
+    {
+        case vk::Result::eSuccess:
+            break;
+        case vk::Result::eSuboptimalKHR:
+            SPDLOG_INFO( "present returned vk::Result::eSuboptimalKHR" );
+            break;
+        default:
+            VK_CHECK( result );
+            break;
+    }
 }
 
 Demo::~Demo()
 {
+    if ( m_imageAvailableSemaphore )
+    {
+        m_logical_device.destroySemaphore( m_imageAvailableSemaphore );
+    }
+    if ( m_renderFinishedSemaphore )
+    {
+        m_logical_device.destroySemaphore( m_renderFinishedSemaphore );
+    }
+    if ( m_inFlightFence )
+    {
+        m_logical_device.destroyFence( m_inFlightFence );
+    }
     if ( m_commandPool )
     {
         m_logical_device.destroyCommandPool( m_commandPool );
