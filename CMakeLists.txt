@@ -1,4 +1,5 @@
 
+cmake_minimum_required(VERSION 3.2)
 
 #get boost
 include( ${WORKSPACE_ROOT_PATH}/thirdparty/boost/boost_include.cmake )
